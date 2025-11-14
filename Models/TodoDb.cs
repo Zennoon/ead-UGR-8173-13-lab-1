@@ -1,3 +1,5 @@
+namespace TodoApi.Models;
+
 using Microsoft.EntityFrameworkCore;
 
 class TodoDb : DbContext

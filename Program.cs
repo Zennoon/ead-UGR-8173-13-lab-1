@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TodoApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<TodoDb>(opt => opt.UseInMemoryDatabase("TodoList"));
@@ -42,15 +43,31 @@ todoItems.MapDelete("/{id}", DeleteTodo);
 
 app.Run();
 
-static async Task<IResult> GetAllTodos(TodoDb db)
+static async Task<IResult> GetAllTodos(TodoDb db, Priority? priority, int page = 1, int pageSize = 10)
 {
-  return TypedResults.Ok(await db.Todos.Select(t => new TodoItemDTO(t)).ToArrayAsync());
+  var query = db.Todos.AsQueryable();
+
+  if (priority.HasValue)
+  {
+    query = query.Where(t => t.Priority == priority);
+  }
+
+  return TypedResults.Ok(await query.Skip((page - 1) * pageSize).Take(pageSize).Select(t => new TodoItemDTO(t)).ToArrayAsync());
 }
 
 
-static async Task<IResult> GetCompleteTodos(TodoDb db)
+static async Task<IResult> GetCompleteTodos(TodoDb db, Priority? priority, int page = 1, int pageSize = 10)
 {
-  return TypedResults.Ok(await db.Todos.Where(t => t.IsComplete).Select(t => new TodoItemDTO(t)).ToListAsync());
+  var query = db.Todos.AsQueryable();
+
+  query = query.Where(t => t.IsComplete);
+
+  if (priority.HasValue)
+  {
+    query = query.Where(t => t.Priority == priority);
+  }
+
+  return TypedResults.Ok(await query.Select(t => new TodoItemDTO(t)).ToListAsync());
 }
 
 
@@ -68,7 +85,8 @@ static async Task<IResult> CreateTodo(TodoItemDTO todoItemDTO, TodoDb db)
   var todoItem = new Todo
   {
     IsComplete = todoItemDTO.IsComplete,
-    Name = todoItemDTO.Name
+    Name = todoItemDTO.Name,
+    Priority = todoItemDTO.Priority
   };
 
   db.Todos.Add(todoItem);
@@ -87,6 +105,7 @@ static async Task<IResult> UpdateTodo(int id, TodoItemDTO todoItemDTO, TodoDb db
 
   todo.Name = todoItemDTO.Name;
   todo.IsComplete = todoItemDTO.IsComplete;
+  todo.Priority = todoItemDTO.Priority;
 
   await db.SaveChangesAsync();
 
