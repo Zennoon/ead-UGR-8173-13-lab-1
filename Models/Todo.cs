@@ -8,5 +8,6 @@ namespace TodoApi.Models
         public Priority Priority { get; set; } = Priority.Low;
         public string? Secret { get; set; }
         public DateTime? DueDate { get; set; }
+        public bool IsDeleted { get; set; }
     }
 }

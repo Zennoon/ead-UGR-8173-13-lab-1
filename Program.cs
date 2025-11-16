@@ -43,19 +43,25 @@ todoItems.MapGet("/complete", GetCompleteTodos);
 
 todoItems.MapGet("/overdue", GetOverdueTodos);
 
+todoItems.MapGet("/trash", GetSoftDeletedTodos);
+
 todoItems.MapGet("/{id}", GetTodo);
 
 todoItems.MapPost("/", CreateTodo);
 
+todoItems.MapPost("/{id}/restore", RestoreSoftDeletedTodo);
+
 todoItems.MapPut("/{id}", UpdateTodo);
 
-todoItems.MapDelete("/{id}", DeleteTodo);
+todoItems.MapDelete("/{id}", SoftDeleteTodo);
+
+todoItems.MapDelete("/{id}/force", ForceDeleteTodo);
 
 app.Run();
 
 static async Task<IResult> GetAllTodos(TodoDb db, Priority? priority, bool? overdue, int page = 1, int pageSize = 10)
 {
-    var query = db.Todos.AsQueryable();
+    var query = db.Todos.AsQueryable().Where(t => !t.IsDeleted);
 
     if (priority.HasValue)
     {
@@ -77,7 +83,7 @@ static async Task<IResult> GetAllTodos(TodoDb db, Priority? priority, bool? over
 
 static async Task<IResult> GetCompleteTodos(TodoDb db, Priority? priority, bool? overdue, int page = 1, int pageSize = 10)
 {
-    var query = db.Todos.AsQueryable();
+    var query = db.Todos.AsQueryable().Where(t => !t.IsDeleted);
 
     query = query.Where(t => t.IsComplete);
 
@@ -95,36 +101,41 @@ static async Task<IResult> GetCompleteTodos(TodoDb db, Priority? priority, bool?
         );
     }
 
-    return TypedResults.Ok(await query.Select(t => new TodoItemOutputDTO(t)).ToListAsync());
+    return TypedResults.Ok(await query.Skip((page - 1) * pageSize).Take(pageSize).Select(t => new TodoItemOutputDTO(t)).ToListAsync());
 }
 
-static async Task<IResult> GetOverdueTodos(TodoDb db, Priority? priority, bool? overdue, int page = 1, int pageSize = 10)
+static async Task<IResult> GetOverdueTodos(TodoDb db, Priority? priority, int page = 1, int pageSize = 10)
 {
-    var query = db.Todos.AsQueryable();
+    var query = db.Todos.AsQueryable().Where(t => !t.IsDeleted);
 
-    query = query.Where(t => t.DueDate < DateTime.Now);
+    query = query.Where(t => t.DueDate < DateTime.Now && !t.IsComplete);
 
     if (priority.HasValue)
     {
         query = query.Where(t => t.Priority == priority);
     }
 
-    if (overdue.HasValue)
+    return TypedResults.Ok(await query.Skip((page - 1) * pageSize).Take(pageSize).Select(t => new TodoItemOutputDTO(t)).ToListAsync());
+}
+
+static async Task<IResult> GetSoftDeletedTodos(TodoDb db, Priority? priority, bool? overdue, int page = 1, int pageSize = 10)
+{
+    var query = db.Todos.AsQueryable();
+
+    query = query.Where(t => t.IsDeleted);
+
+    if (priority.HasValue)
     {
-        query = query.Where(t =>
-            overdue.Value
-                ? t.DueDate < DateTime.Now && !t.IsComplete
-                : t.DueDate >= DateTime.Now || t.IsComplete
-        );
+        query = query.Where(t => t.Priority == priority);
     }
 
-    return TypedResults.Ok(await query.Select(t => new TodoItemOutputDTO(t)).ToListAsync());
+    return TypedResults.Ok(await query.Skip((page - 1) * pageSize).Take(pageSize).Select(t => new TodoItemOutputDTO(t)).ToListAsync());
 }
 
 static async Task<IResult> GetTodo(int id, TodoDb db)
 {
     return await db.Todos.FindAsync(id)
-      is Todo todo
+      is Todo todo && !todo.IsDeleted
         ? TypedResults.Ok(new TodoItemOutputDTO(todo))
         : TypedResults.NotFound();
 }
@@ -148,6 +159,19 @@ static async Task<IResult> CreateTodo(TodoItemInputDTO todoItemInputDTO, TodoDb 
     return TypedResults.Created($"/todoitems/{todoItem.Id}", todoItemOutputDTO);
 }
 
+static async Task<IResult> RestoreSoftDeletedTodo(int id, TodoDb db)
+{
+    var todo = await db.Todos.FindAsync(id);
+
+    if (todo is null || !todo.IsDeleted) return TypedResults.NotFound();
+
+    todo.IsDeleted = false;
+
+    await db.SaveChangesAsync();
+
+    return TypedResults.NoContent();
+}
+
 static async Task<IResult> UpdateTodo(int id, TodoItemInputDTO todoItemDTO, TodoDb db)
 {
     var todo = await db.Todos.FindAsync(id);
@@ -164,7 +188,19 @@ static async Task<IResult> UpdateTodo(int id, TodoItemInputDTO todoItemDTO, Todo
     return TypedResults.NoContent();
 }
 
-static async Task<IResult> DeleteTodo(int id, TodoDb db)
+static async Task<IResult> SoftDeleteTodo(int id, TodoDb db)
+{
+    if (await db.Todos.FindAsync(id) is Todo todo && !todo.IsDeleted)
+    {
+        todo.IsDeleted = true;
+        await db.SaveChangesAsync();
+        return TypedResults.NoContent();
+    }
+
+    return TypedResults.NotFound();
+}
+
+static async Task<IResult> ForceDeleteTodo(int id, TodoDb db)
 {
     if (await db.Todos.FindAsync(id) is Todo todo)
     {
