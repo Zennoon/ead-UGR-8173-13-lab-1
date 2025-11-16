@@ -1,11 +1,12 @@
-namespace TodoApi.Models;
-
-using Microsoft.EntityFrameworkCore;
-
-class TodoDb : DbContext
+namespace TodoApi.Models
 {
-  public TodoDb(DbContextOptions<TodoDb> options)
-    : base(options) { }
+    using Microsoft.EntityFrameworkCore;
 
-  public DbSet<Todo> Todos => Set<Todo>();
+    class TodoDb : DbContext
+    {
+        public TodoDb(DbContextOptions<TodoDb> options)
+          : base(options) { }
+
+        public DbSet<Todo> Todos => Set<Todo>();
+    }
 }

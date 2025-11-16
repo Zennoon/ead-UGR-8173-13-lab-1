@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using TodoApi.Models;
+using TodoApi.Utils;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<TodoDb>(opt => opt.UseInMemoryDatabase("TodoList"));
@@ -12,6 +14,10 @@ builder.Services.AddOpenApiDocument(config =>
     config.DocumentName = "TodoAPI";
     config.Title = "TodoAPI v1";
     config.Version = "v1";
+});
+builder.Services.Configure<JsonOptions>(o =>
+{
+    o.SerializerOptions.Converters.Add(new FriendlyDateConverter());
 });
 
 var app = builder.Build();
@@ -35,6 +41,8 @@ todoItems.MapGet("/", GetAllTodos);
 
 todoItems.MapGet("/complete", GetCompleteTodos);
 
+todoItems.MapGet("/overdue", GetOverdueTodos);
+
 todoItems.MapGet("/{id}", GetTodo);
 
 todoItems.MapPost("/", CreateTodo);
@@ -45,7 +53,7 @@ todoItems.MapDelete("/{id}", DeleteTodo);
 
 app.Run();
 
-static async Task<IResult> GetAllTodos(TodoDb db, Priority? priority, int page = 1, int pageSize = 10)
+static async Task<IResult> GetAllTodos(TodoDb db, Priority? priority, bool? overdue, int page = 1, int pageSize = 10)
 {
     var query = db.Todos.AsQueryable();
 
@@ -54,11 +62,20 @@ static async Task<IResult> GetAllTodos(TodoDb db, Priority? priority, int page =
         query = query.Where(t => t.Priority == priority);
     }
 
-    return TypedResults.Ok(await query.Skip((page - 1) * pageSize).Take(pageSize).Select(t => new TodoItemDTO(t)).ToArrayAsync());
+    if (overdue.HasValue)
+    {
+        query = query.Where(t =>
+            overdue.Value
+                ? t.DueDate < DateTime.Now && !t.IsComplete
+                : t.DueDate >= DateTime.Now || t.IsComplete
+        );
+    }
+
+    return TypedResults.Ok(await query.Skip((page - 1) * pageSize).Take(pageSize).Select(t => new TodoItemOutputDTO(t)).ToArrayAsync());
 }
 
 
-static async Task<IResult> GetCompleteTodos(TodoDb db, Priority? priority, int page = 1, int pageSize = 10)
+static async Task<IResult> GetCompleteTodos(TodoDb db, Priority? priority, bool? overdue, int page = 1, int pageSize = 10)
 {
     var query = db.Todos.AsQueryable();
 
@@ -69,37 +86,69 @@ static async Task<IResult> GetCompleteTodos(TodoDb db, Priority? priority, int p
         query = query.Where(t => t.Priority == priority);
     }
 
-    return TypedResults.Ok(await query.Select(t => new TodoItemDTO(t)).ToListAsync());
+    if (overdue.HasValue)
+    {
+        query = query.Where(t =>
+            overdue.Value
+                ? t.DueDate < DateTime.Now && !t.IsComplete
+                : t.DueDate >= DateTime.Now || t.IsComplete
+        );
+    }
+
+    return TypedResults.Ok(await query.Select(t => new TodoItemOutputDTO(t)).ToListAsync());
 }
 
+static async Task<IResult> GetOverdueTodos(TodoDb db, Priority? priority, bool? overdue, int page = 1, int pageSize = 10)
+{
+    var query = db.Todos.AsQueryable();
+
+    query = query.Where(t => t.DueDate < DateTime.Now);
+
+    if (priority.HasValue)
+    {
+        query = query.Where(t => t.Priority == priority);
+    }
+
+    if (overdue.HasValue)
+    {
+        query = query.Where(t =>
+            overdue.Value
+                ? t.DueDate < DateTime.Now && !t.IsComplete
+                : t.DueDate >= DateTime.Now || t.IsComplete
+        );
+    }
+
+    return TypedResults.Ok(await query.Select(t => new TodoItemOutputDTO(t)).ToListAsync());
+}
 
 static async Task<IResult> GetTodo(int id, TodoDb db)
 {
     return await db.Todos.FindAsync(id)
       is Todo todo
-        ? TypedResults.Ok(new TodoItemDTO(todo))
+        ? TypedResults.Ok(new TodoItemOutputDTO(todo))
         : TypedResults.NotFound();
 }
 
 
-static async Task<IResult> CreateTodo(TodoItemDTO todoItemDTO, TodoDb db)
+static async Task<IResult> CreateTodo(TodoItemInputDTO todoItemInputDTO, TodoDb db)
 {
     var todoItem = new Todo
     {
-        IsComplete = todoItemDTO.IsComplete,
-        Name = todoItemDTO.Name,
-        Priority = todoItemDTO.Priority
+        IsComplete = todoItemInputDTO.IsComplete,
+        Name = todoItemInputDTO.Name,
+        Priority = todoItemInputDTO.Priority,
+        DueDate = todoItemInputDTO.DueDate
     };
 
     db.Todos.Add(todoItem);
     await db.SaveChangesAsync();
 
-    todoItemDTO = new TodoItemDTO(todoItem);
+    var todoItemOutputDTO = new TodoItemOutputDTO(todoItem);
 
-    return TypedResults.Created($"/todoitems/{todoItem.Id}", todoItemDTO);
+    return TypedResults.Created($"/todoitems/{todoItem.Id}", todoItemOutputDTO);
 }
 
-static async Task<IResult> UpdateTodo(int id, TodoItemDTO todoItemDTO, TodoDb db)
+static async Task<IResult> UpdateTodo(int id, TodoItemInputDTO todoItemDTO, TodoDb db)
 {
     var todo = await db.Todos.FindAsync(id);
 
@@ -108,6 +157,7 @@ static async Task<IResult> UpdateTodo(int id, TodoItemDTO todoItemDTO, TodoDb db
     todo.Name = todoItemDTO.Name;
     todo.IsComplete = todoItemDTO.IsComplete;
     todo.Priority = todoItemDTO.Priority;
+    todo.DueDate = todoItemDTO.DueDate;
 
     await db.SaveChangesAsync();
 

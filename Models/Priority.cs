@@ -1,8 +1,9 @@
-namespace TodoApi.Models;
-
-public enum Priority
+namespace TodoApi.Models
 {
-  Low,
-  Medium,
-  High
+    public enum Priority
+    {
+        Low,
+        Medium,
+        High
+    }
 }

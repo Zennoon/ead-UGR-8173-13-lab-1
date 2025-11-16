@@ -1,13 +1,12 @@
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-
-namespace TodoApi.Models;
-
-public class Todo
+namespace TodoApi.Models
 {
-    public int Id { get; set; }
-    public string? Name { get; set; }
-    public bool IsComplete { get; set; }
-    public Priority Priority { get; set; } = Priority.Low;
-    public string? Secret { get; set; }
+    public class Todo
+    {
+        public int Id { get; set; }
+        public string? Name { get; set; }
+        public bool IsComplete { get; set; }
+        public Priority Priority { get; set; } = Priority.Low;
+        public string? Secret { get; set; }
+        public DateTime? DueDate { get; set; }
+    }
 }
